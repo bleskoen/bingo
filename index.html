@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>IKEA BINGO 7.1 (Bugfix)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        :root { --ikea-blue: #0051ba; --ikea-yellow: #ffda1a; }
+        body { background-color: #f5f5f5; font-family: 'Verdana', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .ikea-btn { background-color: var(--ikea-blue); color: white; font-weight: bold; padding: 12px; border-radius: 25px; width: 100%; transition: 0.2s; text-align: center; border: none; cursor: pointer; }
+        .ikea-btn:active { transform: scale(0.98); }
+        .ikea-header { background-color: var(--ikea-blue); color: var(--ikea-yellow); padding: 15px; text-align: center; font-size: 1.2rem; font-weight: bold; position: sticky; top:0; z-index: 50; }
+        
+        .grid-item { background: white; aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: space-between; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer; padding: 8px; position: relative; overflow: hidden; }
+        .grid-item img.example-thumb { width: 100%; height: 60%; object-fit: contain; margin-bottom: 5px; }
+        .grid-item .title { font-size: 0.8rem; font-weight: bold; color: var(--ikea-blue); text-align: center; line-height: 1.2; }
+        
+        .status-layer { position: absolute; top:0; left:0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 1.2rem; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
+        .st-pending { background: rgba(255, 165, 0, 0.8); }
+        .st-approved { background: rgba(76, 175, 80, 0.9); }
+        .st-rejected { background: rgba(229, 57, 53, 0.8); }
+
+        /* Modals en Viewers */
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; display: flex; justify-content: center; align-items: center; padding: 20px; }
+        
+        /* De Nieuwe Image Viewer (BUGFIX: display: flex verwijderd hier, wordt via JS geregeld) */
+        #imageViewer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 200; flex-direction: column; align-items: center; justify-content: center; }
+        
+        /* Deze regel zorgt dat 'hidden' ALTIJD wint */
+        .hidden { display: none !important; }
+        .flex-show { display: flex !important; }
+
+        #imageViewer img { max-width: 95%; max-height: 85vh; object-fit: contain; border: 2px solid white; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #imageViewer .close-btn { position: absolute; top: 20px; right: 20px; color: white; font-size: 30px; cursor: pointer; background: rgba(0,0,0,0.5); width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    </style>
+    <script>
+        const MASTER_PASSWORD = "ikea"; 
+        window.onerror = function(message) { alert("FOUT: " + message); };
+    </script>
+</head>
+<body>
+
+<div id="imageViewer" class="hidden" onclick="closeImageViewer()">
+    <div class="close-btn">&times;</div>
+    <img id="imageViewerImg" src="" onclick="event.stopPropagation()">
+    <div class="text-white mt-4 font-bold text-lg" id="imageViewerCaption"></div>
+</div>
+
+<div id="screen-login" class="h-screen flex flex-col items-center justify-center p-6 bg-white">
+    <h1 class="text-5xl font-bold text-[#0051ba] mb-2 tracking-tighter">IKEA</h1>
+    <h2 class="text-2xl font-bold text-[#ffda1a] bg-[#0051ba] px-4 py-1 mb-8 transform -skew-x-12">BINGO</h2>
+    
+    <div id="gameLockedMsg" class="hidden bg-red-100 text-red-700 p-4 rounded mb-4 text-center border border-red-400">
+        Het spel is vergrendeld.
+    </div>
+
+    <div class="w-full max-w-sm space-y-4" id="loginForm">
+        <input type="text" id="inpName" placeholder="Jouw Naam" class="w-full p-4 border-2 border-gray-300 rounded-lg text-lg focus:border-[#0051ba] outline-none">
+        
+        <div class="relative">
+            <select id="inpTeamSelect" onchange="toggleTeamInput()" class="w-full p-4 border-2 border-gray-300 rounded-lg text-lg bg-white focus:border-[#0051ba] outline-none appearance-none">
+                <option value="" disabled selected>Kies een Team...</option>
+                <option value="NEW">+ Maak Nieuw Team</option>
+            </select>
+            <i class="fas fa-chevron-down absolute right-4 top-5 text-gray-400 pointer-events-none"></i>
+        </div>
+
+        <input type="text" id="inpTeamNew" placeholder="Typ nieuwe teamnaam..." class="hidden w-full p-4 border-2 border-gray-300 rounded-lg text-lg focus:border-[#0051ba] outline-none bg-blue-50">
+
+        <button onclick="safeLogin('player')" class="ikea-btn bg-[#ffda1a] text-[#0051ba] text-xl mt-4">Doe mee!</button>
+        <div class="text-center mt-6">
+            <button onclick="safeLogin('master')" class="text-gray-400 underline text-sm">Spelmaster Login</button>
+        </div>
+    </div>
+</div>
+
+<div id="screen-player" class="hidden min-h-screen pb-20">
+    <div class="ikea-header flex justify-between shadow-md">
+        <div id="displayTeam" class="text-sm">Team</div>
+        <div class="bg-white text-[#0051ba] px-3 py-1 rounded-full text-sm shadow">Punten: <span id="displayPoints">0</span></div>
+    </div>
+    <div class="p-4">
+        <div id="bingoGrid" class="grid grid-cols-2 gap-4">
+            <div class="col-span-2 text-center text-gray-400 mt-10">Laden...</div>
+        </div>
+    </div>
+</div>
+
+<div id="screen-master" class="hidden h-screen flex flex-col bg-gray-100">
+    <div class="ikea-header flex justify-between items-center">
+        <span>MASTER</span>
+        <div class="space-x-1 text-xs">
+            <button onclick="showTab('tab-feed')" class="bg-white text-blue-800 px-2 py-1 rounded">Feed</button>
+            <button onclick="showTab('tab-players')" class="bg-white text-blue-800 px-2 py-1 rounded">Spelers</button>
+            <button onclick="showTab('tab-setup')" class="bg-blue-800 border border-white px-2 py-1 rounded text-white">Setup</button>
+        </div>
+    </div>
+
+    <div id="tab-feed" class="flex-1 flex flex-col md:flex-row overflow-hidden">
+        <div class="flex-1 overflow-y-auto p-4 space-y-3" id="feedList">
+            <div class="text-center text-gray-400 mt-10">Wachten op uploads...</div>
+        </div>
+        <div class="md:w-1/3 bg-white border-l p-4 overflow-y-auto">
+            <h3 class="font-bold text-[#0051ba] mb-4 border-b pb-2">Scorebord</h3>
+            <table class="w-full" id="scoreTable"></table>
+        </div>
+    </div>
+
+    <div id="tab-players" class="hidden flex-1 overflow-y-auto p-6">
+        <div class="bg-white p-6 rounded shadow max-w-2xl mx-auto mb-6">
+            <h2 class="text-xl font-bold mb-4 text-[#0051ba]">Spel Status</h2>
+            <div class="flex items-center justify-between p-4 bg-gray-50 rounded border">
+                <div>
+                    <div class="font-bold">Spel Vergrendelen</div>
+                    <div class="text-sm text-gray-600">Geen nieuwe teams meer</div>
+                </div>
+                <button id="btnLockGame" onclick="toggleGameLock()" class="px-4 py-2 rounded font-bold bg-gray-300">Laden...</button>
+            </div>
+        </div>
+        <div class="bg-white p-6 rounded shadow max-w-2xl mx-auto">
+            <h2 class="text-xl font-bold mb-4 text-[#0051ba]">Actieve Teams</h2>
+            <div id="playerList" class="space-y-4"></div>
+        </div>
+    </div>
+
+    <div id="tab-setup" class="hidden flex-1 overflow-y-auto p-6">
+        <div class="bg-blue-50 border border-blue-200 p-6 rounded shadow max-w-2xl mx-auto mb-8">
+            <h2 class="text-xl font-bold mb-2 text-[#0051ba]"><i class="fas fa-download"></i> Aandenken</h2>
+            <p class="text-sm text-gray-600 mb-4">Download alle gemaakte foto's in één keer als ZIP bestand.</p>
+            <button onclick="downloadAllPhotos()" id="btnDownload" class="ikea-btn">Download alle foto's (.ZIP)</button>
+        </div>
+
+        <div class="bg-white p-6 rounded shadow max-w-2xl mx-auto mb-8">
+            <h2 class="text-xl font-bold mb-4 text-[#0051ba]">Item Toevoegen</h2>
+            <div class="space-y-3">
+                <input type="text" id="newItemName" placeholder="Naam (bv. Billy Kast)" class="w-full p-2 border rounded">
+                <div class="relative">
+                    <input type="text" id="newItemUrl" placeholder="Plak hier afbeeldingsadres van IKEA.nl" class="w-full p-2 border rounded pl-8">
+                    <i class="fas fa-link absolute left-3 top-3 text-gray-400"></i>
+                </div>
+                <div class="text-center text-gray-400 text-sm">- OF -</div>
+                <div class="border-2 border-dashed p-4 text-center cursor-pointer hover:bg-gray-50 rounded" onclick="document.getElementById('newItemFile').click()">
+                    <span id="fileLabel" class="text-gray-500">Upload eigen foto</span>
+                    <input type="file" id="newItemFile" class="hidden" accept="image/*">
+                </div>
+                <button onclick="addGameItem()" id="btnAddItem" class="ikea-btn">Toevoegen</button>
+            </div>
+            <h3 class="font-bold mt-8 mb-4">Huidige Items</h3>
+            <div id="setupItemList" class="space-y-2"></div>
+        </div>
+
+        <div class="bg-red-50 border border-red-200 p-6 rounded shadow max-w-2xl mx-auto">
+            <h2 class="text-xl font-bold mb-4 text-red-600"><i class="fas fa-exclamation-triangle"></i> Gevarenzone</h2>
+            <div class="space-y-3">
+                <div class="flex justify-between items-center bg-white p-3 rounded border">
+                    <div>
+                        <div class="font-bold text-gray-800">Spel Resetten (Nieuwe Ronde)</div>
+                        <div class="text-xs text-gray-500">Verwijdert alle ingestuurde foto's.</div>
+                    </div>
+                    <button onclick="wipeData('uploads')" class="bg-orange-500 text-white px-3 py-2 rounded font-bold text-sm">Wipe Foto's</button>
+                </div>
+                <div class="flex justify-between items-center bg-white p-3 rounded border">
+                    <div>
+                        <div class="font-bold text-gray-800">Alles Wissen</div>
+                        <div class="text-xs text-gray-500">Verwijdert spelers, teams en uploads.</div>
+                    </div>
+                    <button onclick="wipeData('players')" class="bg-red-600 text-white px-3 py-2 rounded font-bold text-sm">Wipe Alles</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="uploadModal" class="modal hidden">
+    <div class="bg-white p-6 rounded-lg w-11/12 max-w-md text-center">
+        <h3 id="modalTitle" class="text-xl font-bold text-[#0051ba] mb-2">Item</h3>
+        <img id="modalExample" src="" class="w-full h-48 object-contain bg-gray-100 rounded mb-4">
+        <button onclick="triggerCamera()" class="ikea-btn mb-2">📸 Maak Foto</button>
+        <button onclick="closeModal()" class="text-gray-400 text-sm py-2">Annuleren</button>
+    </div>
+</div>
+<input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden">
+
+<script>
+    function safeLogin(role) { if (window.appLogin) window.appLogin(role); }
+    function toggleTeamInput() {
+        const sel = document.getElementById('inpTeamSelect');
+        const inp = document.getElementById('inpTeamNew');
+        if(sel.value === 'NEW') { inp.classList.remove('hidden'); inp.focus(); } 
+        else { inp.classList.add('hidden'); }
+    }
+</script>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, updateDoc, doc, query, orderBy, deleteDoc, setDoc, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+    // --- CONFIGURATIE ---
+    const firebaseConfig = {
+        // PLAK JOUW CONFIG HIER
+        apiKey: "AIzaSyDDdpdpC9MkNhH3hX_z16hWE65ej4zVP-w",
+  authDomain: "ikea-bingo.firebaseapp.com",
+  projectId: "ikea-bingo",
+  storageBucket: "ikea-bingo.firebasestorage.app",
+  messagingSenderId: "1077945052270",
+  appId: "1:1077945052270:web:5d69643407b6356b03ca7f",
+  measurementId: "G-XQZMGN9KFR"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    let me = { name: '', team: '', role: '' };
+    let currentItemData = null;
+    let isGameLocked = false;
+
+    // --- VIEWER LOGICA ---
+    window.openImageViewer = (url, caption) => {
+        const v = document.getElementById('imageViewer');
+        const img = document.getElementById('imageViewerImg');
+        const cap = document.getElementById('imageViewerCaption');
+        img.src = url;
+        cap.innerText = caption || "";
+        v.classList.remove('hidden');
+        v.classList.add('flex-show'); // Forceer flex weergave
+    }
+    window.closeImageViewer = () => {
+        const v = document.getElementById('imageViewer');
+        v.classList.add('hidden');
+        v.classList.remove('flex-show');
+    }
+
+
+    // --- TEAMS LADEN ---
+    const teamSelect = document.getElementById('inpTeamSelect');
+    onSnapshot(collection(db, "players"), (snap) => {
+        const teams = new Set();
+        snap.forEach(d => teams.add(d.data().team));
+        teamSelect.innerHTML = `<option value="" disabled selected>Kies een Team...</option>`;
+        teams.forEach(t => { if(t !== 'Admin') teamSelect.innerHTML += `<option value="${t}">${t}</option>`; });
+        teamSelect.innerHTML += `<option value="NEW" class="font-bold text-blue-600">+ Maak Nieuw Team</option>`;
+    });
+
+    // --- LOGIN ---
+    onSnapshot(doc(db, "settings", "game_status"), (docSnap) => {
+        if(docSnap.exists()) { isGameLocked = docSnap.data().locked; updateLockUI(); }
+    });
+
+    window.appLogin = async (role) => {
+        if(role === 'master') {
+            const pwd = prompt("Wachtwoord:");
+            if(pwd !== MASTER_PASSWORD) return alert("Fout");
+            me = { name: 'Master', team: 'Admin', role };
+            document.getElementById('screen-login').classList.add('hidden');
+            document.getElementById('screen-master').classList.remove('hidden');
+            initMaster();
+        } else {
+            if(isGameLocked) return alert("Spel is gesloten.");
+            const name = document.getElementById('inpName').value.trim();
+            const teamSel = document.getElementById('inpTeamSelect').value;
+            let teamName = teamSel;
+            if(teamSel === 'NEW') teamName = document.getElementById('inpTeamNew').value.trim();
+            if (!name || !teamName || teamName === "") return alert("Vul naam en team in!");
+            me = { name, team: teamName, role };
+            await setDoc(doc(db, "players", name), { name, team: teamName, lastActive: Date.now() });
+            document.getElementById('screen-login').classList.add('hidden');
+            document.getElementById('screen-player').classList.remove('hidden');
+            document.getElementById('displayTeam').innerText = `${name} (${teamName})`;
+            initPlayer();
+        }
+    };
+
+    // --- DOWNLOAD ---
+    window.downloadAllPhotos = async () => {
+        const btn = document.getElementById('btnDownload'); const oldText = btn.innerText;
+        btn.innerText = "Bezig...";
+        try {
+            const zip = new JSZip(); const folder = zip.folder("IKEA_BINGO");
+            const q = query(collection(db, "uploads")); const snapshot = await getDocs(q);
+            if(snapshot.empty) { alert("Geen foto's!"); btn.innerText = oldText; return; }
+            snapshot.forEach((doc) => {
+                const data = doc.data();
+                if (data.photoUrl && data.photoUrl.startsWith('data:image')) {
+                    const imgData = data.photoUrl.split(',')[1];
+                    folder.file(`${data.team}_${data.itemName}_${data.playerName}.jpg`, imgData, {base64: true});
+                }
+            });
+            const content = await zip.generateAsync({type:"blob"});
+            saveAs(content, "IKEA_Bingo.zip");
+        } catch (e) { alert("Download fout."); }
+        btn.innerText = oldText;
+    };
+
+    // --- WIPE ---
+    window.wipeData = async (col) => {
+        if(!confirm("Zeker weten?")) return;
+        const q = query(collection(db, col)); const snap = await getDocs(q);
+        const batch = writeBatch(db); snap.forEach(doc => batch.delete(doc.ref));
+        if(col === 'players') { const q2 = query(collection(db, 'uploads')); const snap2 = await getDocs(q2); snap2.forEach(doc => batch.delete(doc.ref)); }
+        await batch.commit(); alert("Gewist.");
+    }
+    function updateLockUI() {
+        const msg = document.getElementById('gameLockedMsg'); const btn = document.getElementById('btnLockGame');
+        if(isGameLocked) msg.classList.remove('hidden'); else msg.classList.add('hidden');
+        if(btn) { btn.innerText = isGameLocked ? "SPEL IS VERGRENDELD" : "SPEL STAAT OPEN"; btn.className = isGameLocked ? "px-4 py-2 rounded font-bold bg-red-500 text-white" : "px-4 py-2 rounded font-bold bg-green-500 text-white"; }
+    }
+
+    // --- SMART COMPRESSION ---
+    const compressImage = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = (ev) => {
+                const img = new Image(); img.src = ev.target.result;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+                    let width = 1280; let scale = width / img.width;
+                    canvas.width = width; canvas.height = img.height * scale;
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    let dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                    
+                    if (dataUrl.length > 950000) {
+                        width = 1024; scale = width / img.width;
+                        canvas.width = width; canvas.height = img.height * scale;
+                        ctx.clearRect(0,0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                    }
+                    if (dataUrl.length > 950000) { dataUrl = canvas.toDataURL('image/jpeg', 0.5); }
+                    resolve(dataUrl);
+                }
+            };
+            reader.onerror = reject;
+        });
+    }
+
+    // --- GAME ---
+    function initPlayer() {
+        onSnapshot(query(collection(db, "game_items"), orderBy("created")), (snapshot) => {
+            const grid = document.getElementById('bingoGrid'); grid.innerHTML = '';
+            snapshot.docs.forEach(docSnap => {
+                const item = docSnap.data();
+                const div = document.createElement('div'); div.className = 'grid-item'; div.id = `card-${docSnap.id}`;
+                div.innerHTML = `<img src="${item.exampleUrl}" class="example-thumb"><div class="title">${item.name}</div><div class="status-layer hidden" id="status-${docSnap.id}"></div>`;
+                div.onclick = () => openItemModal(docSnap.id, item);
+                grid.appendChild(div);
+            });
+            syncMyUploads();
+        });
+    }
+    function syncMyUploads() {
+        onSnapshot(collection(db, "uploads"), (snapshot) => {
+            let points = 0;
+            snapshot.docs.forEach(docSnap => {
+                const up = docSnap.data();
+                if(up.playerName === me.name && up.team === me.team) {
+                    const statusLayer = document.getElementById(`status-${up.itemId}`);
+                    if(statusLayer) {
+                        statusLayer.classList.remove('hidden', 'st-pending', 'st-approved', 'st-rejected');
+                        if(up.status === 'pending') { statusLayer.classList.add('st-pending'); statusLayer.innerHTML = '<i class="fas fa-hourglass-half"></i>'; }
+                        else if(up.status === 'approved') { statusLayer.classList.add('st-approved'); statusLayer.innerHTML = '<i class="fas fa-check"></i>'; points++; }
+                        else if(up.status === 'rejected') { statusLayer.classList.add('st-rejected'); statusLayer.innerHTML = '<i class="fas fa-times"></i>'; }
+                    }
+                }
+            });
+            document.getElementById('displayPoints').innerText = points;
+        });
+    }
+    function initMaster() {
+        onSnapshot(query(collection(db, "game_items"), orderBy("created")), (snap) => {
+            const list = document.getElementById('setupItemList'); list.innerHTML = '';
+            snap.docs.forEach(d => {
+                const data = d.data();
+                list.innerHTML += `<div class="flex justify-between items-center bg-gray-50 p-2 border rounded"><div class="flex items-center gap-2"><img src="${data.exampleUrl}" class="w-8 h-8 object-cover rounded"><span>${data.name}</span></div><button onclick="deleteItem('${d.id}')" class="text-red-500 text-xs">Verwijder</button></div>`;
+            });
+        });
+
+        onSnapshot(query(collection(db, "uploads"), orderBy("timestamp", "desc")), (snap) => {
+            const feed = document.getElementById('feedList'); feed.innerHTML = '';
+            const teamScores = {};
+            snap.docs.forEach(docSnap => {
+                const data = docSnap.data();
+                if(data.status === 'approved') teamScores[data.team] = (teamScores[data.team] || 0) + 1;
+                const card = document.createElement('div'); card.className = "bg-white p-3 rounded shadow flex gap-3 items-center";
+                let controls = data.status === 'pending' ? 
+                    `<div class="flex flex-col gap-2 ml-auto"><button onclick="setStatus('${docSnap.id}', 'approved')" class="bg-green-500 text-white px-3 py-2 rounded"><i class="fas fa-check"></i></button><button onclick="setStatus('${docSnap.id}', 'rejected')" class="bg-red-500 text-white px-3 py-2 rounded"><i class="fas fa-times"></i></button></div>` : 
+                    `<div class="ml-auto font-bold ${data.status === 'approved' ? 'text-green-600' : 'text-red-600'} text-xl"><i class="fas fa-${data.status === 'approved' ? 'check' : 'times'}"></i></div>`;
+                
+                card.innerHTML = `<img src="${data.photoUrl}" class="w-16 h-16 object-cover rounded bg-gray-200 cursor-pointer" onclick="openImageViewer('${data.photoUrl}', '${data.playerName} - ${data.itemName}')"><div class="flex-1 text-sm"><div class="font-bold text-[#0051ba]">${data.team}</div><div class="text-gray-600">${data.playerName}</div><div class="mt-1 bg-gray-100 inline-block px-2 rounded text-xs font-bold">${data.itemName}</div></div>${controls}`;
+                feed.appendChild(card);
+            });
+            document.getElementById('scoreTable').innerHTML = Object.entries(teamScores).sort((a,b) => b[1] - a[1]).map(([team, score]) => `<tr class="border-b"><td class="py-2 text-gray-700">${team}</td><td class="py-2 font-bold text-[#0051ba] text-right">${score}</td></tr>`).join('');
+        });
+
+        onSnapshot(collection(db, "players"), (snap) => {
+            const list = document.getElementById('playerList'); list.innerHTML = '';
+            const teams = {};
+            snap.docs.forEach(d => { const p = d.data(); if(!teams[p.team]) teams[p.team] = []; teams[p.team].push(p.name); });
+            Object.entries(teams).forEach(([teamName, members]) => {
+                list.innerHTML += `<div class="border rounded p-3 mb-2 bg-gray-50"><h4 class="font-bold text-[#0051ba]">${teamName}</h4><div class="text-sm text-gray-600">${members.join(', ')}</div></div>`;
+            });
+        });
+    }
+
+    // --- GENERIC ---
+    window.addGameItem = async () => {
+        const name = document.getElementById('newItemName').value; const urlInput = document.getElementById('newItemUrl').value; const file = document.getElementById('newItemFile').files[0]; const btn = document.getElementById('btnAddItem');
+        if(!name) return alert("Naam verplicht");
+        btn.innerText = "Bezig...";
+        let finalUrl = "https://placehold.co/400?text=Geen+Foto";
+        if(urlInput) finalUrl = urlInput; else if (file) { try { finalUrl = await compressImage(file); } catch(e) {} }
+        await addDoc(collection(db, "game_items"), { name, exampleUrl: finalUrl, created: Date.now() });
+        document.getElementById('newItemName').value = ''; document.getElementById('newItemUrl').value = ''; document.getElementById('newItemFile').value = ''; document.getElementById('fileLabel').innerText = "Upload eigen foto"; btn.innerText = "Toevoegen";
+    };
+
+    window.toggleGameLock = async () => { const newVal = !isGameLocked; await setDoc(doc(db, "settings", "game_status"), { locked: newVal }); }
+    window.openItemModal = (id, item) => {
+        const st = document.getElementById(`status-${id}`);
+        if(st && (st.classList.contains('st-approved') || st.classList.contains('st-pending'))) return;
+        currentItemData = { id, name: item.name }; document.getElementById('modalTitle').innerText = item.name; document.getElementById('modalExample').src = item.exampleUrl; document.getElementById('uploadModal').classList.remove('hidden');
+    }
+    window.closeModal = () => document.getElementById('uploadModal').classList.add('hidden');
+    window.triggerCamera = () => document.getElementById('cameraInput').click();
+    window.showTab = (id) => { ['tab-feed','tab-players','tab-setup'].forEach(t => document.getElementById(t).classList.add('hidden')); document.getElementById(id).classList.remove('hidden'); }
+    
+    document.getElementById('cameraInput').addEventListener('change', async (e) => {
+        if(!e.target.files[0]) return; closeModal();
+        try { const imgBase64 = await compressImage(e.target.files[0]); await addDoc(collection(db, "uploads"), { itemId: currentItemData.id, itemName: currentItemData.name, playerName: me.name, team: me.team, photoUrl: imgBase64, status: 'pending', timestamp: Date.now() }); } catch(err) { alert("Upload mislukt."); }
+    });
+    document.getElementById('newItemFile').addEventListener('change', function() { if(this.files[0]) document.getElementById('fileLabel').innerText = this.files[0].name; });
+    window.deleteItem = async (id) => { if(confirm("Verwijderen?")) await deleteDoc(doc(db, "game_items", id)); }
+    window.setStatus = async (id, status) => { await updateDoc(doc(db, "uploads", id), { status: status }); }
+
+</script>
+</body>
+</html>
