@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>IKEA BINGO 7.1 (Bugfix)</title>
+    <title>IKEA BINGO 8.0 (De Race)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -20,18 +20,19 @@
         .grid-item img.example-thumb { width: 100%; height: 60%; object-fit: contain; margin-bottom: 5px; }
         .grid-item .title { font-size: 0.8rem; font-weight: bold; color: var(--ikea-blue); text-align: center; line-height: 1.2; }
         
-        .status-layer { position: absolute; top:0; left:0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 1.2rem; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
-        .st-pending { background: rgba(255, 165, 0, 0.8); }
-        .st-approved { background: rgba(76, 175, 80, 0.9); }
-        .st-rejected { background: rgba(229, 57, 53, 0.8); }
+        /* Statussen */
+        .status-layer { position: absolute; top:0; left:0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 1.0rem; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); text-align: center; padding: 5px; }
+        
+        .st-pending { background: rgba(255, 165, 0, 0.8); } /* Oranje: Wachten */
+        .st-approved { background: rgba(76, 175, 80, 0.9); } /* Groen: Jij hebt m! */
+        .st-rejected { background: rgba(229, 57, 53, 0.8); } /* Rood: Afgekeurd */
+        
+        /* NIEUW: Verloren status (iemand anders was eerder) */
+        .st-lost { background: rgba(100, 100, 100, 0.9); border: 2px solid #ccc; } 
 
-        /* Modals en Viewers */
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; display: flex; justify-content: center; align-items: center; padding: 20px; }
         
-        /* De Nieuwe Image Viewer (BUGFIX: display: flex verwijderd hier, wordt via JS geregeld) */
         #imageViewer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 200; flex-direction: column; align-items: center; justify-content: center; }
-        
-        /* Deze regel zorgt dat 'hidden' ALTIJD wint */
         .hidden { display: none !important; }
         .flex-show { display: flex !important; }
 
@@ -53,7 +54,7 @@
 
 <div id="screen-login" class="h-screen flex flex-col items-center justify-center p-6 bg-white">
     <h1 class="text-5xl font-bold text-[#0051ba] mb-2 tracking-tighter">IKEA</h1>
-    <h2 class="text-2xl font-bold text-[#ffda1a] bg-[#0051ba] px-4 py-1 mb-8 transform -skew-x-12">BINGO</h2>
+    <h2 class="text-2xl font-bold text-[#ffda1a] bg-[#0051ba] px-4 py-1 mb-8 transform -skew-x-12">DE RACE</h2>
     
     <div id="gameLockedMsg" class="hidden bg-red-100 text-red-700 p-4 rounded mb-4 text-center border border-red-400">
         Het spel is vergrendeld.
@@ -219,24 +220,19 @@
     let currentItemData = null;
     let isGameLocked = false;
 
-    // --- VIEWER LOGICA ---
+    // --- VIEWER ---
     window.openImageViewer = (url, caption) => {
         const v = document.getElementById('imageViewer');
-        const img = document.getElementById('imageViewerImg');
-        const cap = document.getElementById('imageViewerCaption');
-        img.src = url;
-        cap.innerText = caption || "";
-        v.classList.remove('hidden');
-        v.classList.add('flex-show'); // Forceer flex weergave
+        document.getElementById('imageViewerImg').src = url;
+        document.getElementById('imageViewerCaption').innerText = caption || "";
+        v.classList.remove('hidden'); v.classList.add('flex-show');
     }
     window.closeImageViewer = () => {
         const v = document.getElementById('imageViewer');
-        v.classList.add('hidden');
-        v.classList.remove('flex-show');
+        v.classList.add('hidden'); v.classList.remove('flex-show');
     }
 
-
-    // --- TEAMS LADEN ---
+    // --- TEAMS ---
     const teamSelect = document.getElementById('inpTeamSelect');
     onSnapshot(collection(db, "players"), (snap) => {
         const teams = new Set();
@@ -313,22 +309,17 @@
     // --- SMART COMPRESSION ---
     const compressImage = (file) => {
         return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
+            const reader = new FileReader(); reader.readAsDataURL(file);
             reader.onload = (ev) => {
                 const img = new Image(); img.src = ev.target.result;
                 img.onload = () => {
                     const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
-                    let width = 1280; let scale = width / img.width;
-                    canvas.width = width; canvas.height = img.height * scale;
+                    let width = 1280; let scale = width / img.width; canvas.width = width; canvas.height = img.height * scale;
                     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                     let dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                    
                     if (dataUrl.length > 950000) {
-                        width = 1024; scale = width / img.width;
-                        canvas.width = width; canvas.height = img.height * scale;
-                        ctx.clearRect(0,0, canvas.width, canvas.height);
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        width = 1024; scale = width / img.width; canvas.width = width; canvas.height = img.height * scale;
+                        ctx.clearRect(0,0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                         dataUrl = canvas.toDataURL('image/jpeg', 0.7);
                     }
                     if (dataUrl.length > 950000) { dataUrl = canvas.toDataURL('image/jpeg', 0.5); }
@@ -341,6 +332,7 @@
 
     // --- GAME ---
     function initPlayer() {
+        // Render kaarten
         onSnapshot(query(collection(db, "game_items"), orderBy("created")), (snapshot) => {
             const grid = document.getElementById('bingoGrid'); grid.innerHTML = '';
             snapshot.docs.forEach(docSnap => {
@@ -350,27 +342,88 @@
                 div.onclick = () => openItemModal(docSnap.id, item);
                 grid.appendChild(div);
             });
-            syncMyUploads();
+            syncGameStatus();
         });
     }
-    function syncMyUploads() {
+
+    // NIEUW: SYNC LOGICA VOOR "DE RACE"
+    function syncGameStatus() {
         onSnapshot(collection(db, "uploads"), (snapshot) => {
-            let points = 0;
+            // 1. Zoek eerst uit wie welke items heeft GEWONNEN (approved)
+            const winners = {}; // { itemId: "TeamNaam" }
+            snapshot.docs.forEach(docSnap => {
+                const data = docSnap.data();
+                if (data.status === 'approved') {
+                    winners[data.itemId] = data.team;
+                }
+            });
+
+            let myPoints = 0;
+
+            // 2. Loop nog eens door de uploads om MIJN status te bepalen
             snapshot.docs.forEach(docSnap => {
                 const up = docSnap.data();
-                if(up.playerName === me.name && up.team === me.team) {
-                    const statusLayer = document.getElementById(`status-${up.itemId}`);
-                    if(statusLayer) {
-                        statusLayer.classList.remove('hidden', 'st-pending', 'st-approved', 'st-rejected');
-                        if(up.status === 'pending') { statusLayer.classList.add('st-pending'); statusLayer.innerHTML = '<i class="fas fa-hourglass-half"></i>'; }
-                        else if(up.status === 'approved') { statusLayer.classList.add('st-approved'); statusLayer.innerHTML = '<i class="fas fa-check"></i>'; points++; }
-                        else if(up.status === 'rejected') { statusLayer.classList.add('st-rejected'); statusLayer.innerHTML = '<i class="fas fa-times"></i>'; }
+                const statusLayer = document.getElementById(`status-${up.itemId}`);
+                if (!statusLayer) return;
+
+                // Is dit item al gewonnen door iemand?
+                if (winners[up.itemId]) {
+                    // JA, hij is vergeven.
+                    statusLayer.classList.remove('hidden', 'st-pending', 'st-approved', 'st-rejected', 'st-lost');
+                    
+                    if (winners[up.itemId] === me.team) {
+                        // Wij hebben gewonnen!
+                        statusLayer.classList.add('st-approved');
+                        statusLayer.innerHTML = '<i class="fas fa-check"></i><br>BINGO!';
+                        // Tel punt alleen als DIT mijn winnende upload is (voorkom dubbel tellen)
+                        if(up.playerName === me.name && up.status === 'approved') myPoints++; 
+                        // Of simpeler: Als team wint, tellen we hem als 1 punt voor het team, 
+                        // maar voor displayPoints tellen we aantal gewonnen items van mijn team.
+                    } else {
+                        // Iemand anders heeft gewonnen
+                        statusLayer.classList.add('st-lost');
+                        statusLayer.innerHTML = `<i class="fas fa-lock"></i><br><span class="text-xs">Gepakt door:<br>${winners[up.itemId]}</span>`;
+                    }
+                } else {
+                    // Item is nog NIET vergeven. Heb ik een pending upload?
+                    if (up.playerName === me.name && up.team === me.team) {
+                        statusLayer.classList.remove('hidden', 'st-pending', 'st-approved', 'st-rejected', 'st-lost');
+                        if (up.status === 'pending') {
+                            statusLayer.classList.add('st-pending');
+                            statusLayer.innerHTML = '<i class="fas fa-hourglass-half"></i>';
+                        } else if (up.status === 'rejected') {
+                            statusLayer.classList.add('st-rejected');
+                            statusLayer.innerHTML = '<i class="fas fa-times"></i>';
+                        }
                     }
                 }
             });
-            document.getElementById('displayPoints').innerText = points;
+
+            // Als er geen upload is voor een item, en er is wel een winnaar (die niet in mijn snapshot zat omdat ik niet uploadde),
+            // dan moeten we die ook locken.
+            // Loop door alle items heen
+            document.querySelectorAll('.grid-item').forEach(div => {
+                const itemId = div.id.replace('card-', '');
+                const statusLayer = document.getElementById(`status-${itemId}`);
+                
+                if (winners[itemId]) {
+                     statusLayer.classList.remove('hidden', 'st-pending', 'st-approved', 'st-rejected', 'st-lost');
+                     if (winners[itemId] === me.team) {
+                         statusLayer.classList.add('st-approved');
+                         statusLayer.innerHTML = '<i class="fas fa-check"></i><br>BINGO!';
+                     } else {
+                         statusLayer.classList.add('st-lost');
+                         statusLayer.innerHTML = `<i class="fas fa-lock"></i><br><span class="text-xs">Gepakt door:<br>${winners[itemId]}</span>`;
+                     }
+                }
+            });
+
+            // Bereken punten (Aantal approved items van mijn team)
+            const myTeamWins = Object.values(winners).filter(t => t === me.team).length;
+            document.getElementById('displayPoints').innerText = myTeamWins;
         });
     }
+
     function initMaster() {
         onSnapshot(query(collection(db, "game_items"), orderBy("created")), (snap) => {
             const list = document.getElementById('setupItemList'); list.innerHTML = '';
@@ -383,14 +436,33 @@
         onSnapshot(query(collection(db, "uploads"), orderBy("timestamp", "desc")), (snap) => {
             const feed = document.getElementById('feedList'); feed.innerHTML = '';
             const teamScores = {};
+            
+            // Check winners first to color feed
+            const winners = {};
+            snap.docs.forEach(docSnap => { if(docSnap.data().status === 'approved') winners[docSnap.data().itemId] = docSnap.data().team; });
+
             snap.docs.forEach(docSnap => {
                 const data = docSnap.data();
                 if(data.status === 'approved') teamScores[data.team] = (teamScores[data.team] || 0) + 1;
-                const card = document.createElement('div'); card.className = "bg-white p-3 rounded shadow flex gap-3 items-center";
-                let controls = data.status === 'pending' ? 
-                    `<div class="flex flex-col gap-2 ml-auto"><button onclick="setStatus('${docSnap.id}', 'approved')" class="bg-green-500 text-white px-3 py-2 rounded"><i class="fas fa-check"></i></button><button onclick="setStatus('${docSnap.id}', 'rejected')" class="bg-red-500 text-white px-3 py-2 rounded"><i class="fas fa-times"></i></button></div>` : 
-                    `<div class="ml-auto font-bold ${data.status === 'approved' ? 'text-green-600' : 'text-red-600'} text-xl"><i class="fas fa-${data.status === 'approved' ? 'check' : 'times'}"></i></div>`;
                 
+                // Als item al gewonnen is door IEMAND, en deze upload is pending -> Auto Reject weergave? 
+                // Nee, master moet gewoon zien wat er is.
+                
+                const card = document.createElement('div'); card.className = "bg-white p-3 rounded shadow flex gap-3 items-center";
+                
+                let controls = '';
+                // Alleen knoppen tonen als item nog NIET gewonnen is, OF als DIT de winnaar is (om te un-approven)
+                if (data.status === 'pending') {
+                     // Check if item is already won by ANYONE
+                     if (winners[data.itemId]) {
+                         controls = `<div class="ml-auto text-xs text-gray-400 font-bold border p-1 rounded">Te Laat<br>(Al weg)</div>`;
+                     } else {
+                         controls = `<div class="flex flex-col gap-2 ml-auto"><button onclick="setStatus('${docSnap.id}', 'approved')" class="bg-green-500 text-white px-3 py-2 rounded"><i class="fas fa-check"></i></button><button onclick="setStatus('${docSnap.id}', 'rejected')" class="bg-red-500 text-white px-3 py-2 rounded"><i class="fas fa-times"></i></button></div>`;
+                     }
+                } else {
+                    controls = `<div class="ml-auto font-bold ${data.status === 'approved' ? 'text-green-600' : 'text-red-600'} text-xl"><i class="fas fa-${data.status === 'approved' ? 'check' : 'times'}"></i></div>`;
+                }
+
                 card.innerHTML = `<img src="${data.photoUrl}" class="w-16 h-16 object-cover rounded bg-gray-200 cursor-pointer" onclick="openImageViewer('${data.photoUrl}', '${data.playerName} - ${data.itemName}')"><div class="flex-1 text-sm"><div class="font-bold text-[#0051ba]">${data.team}</div><div class="text-gray-600">${data.playerName}</div><div class="mt-1 bg-gray-100 inline-block px-2 rounded text-xs font-bold">${data.itemName}</div></div>${controls}`;
                 feed.appendChild(card);
             });
@@ -419,9 +491,12 @@
     };
 
     window.toggleGameLock = async () => { const newVal = !isGameLocked; await setDoc(doc(db, "settings", "game_status"), { locked: newVal }); }
+    
+    // Check bij openen modal of item al weg is
     window.openItemModal = (id, item) => {
         const st = document.getElementById(`status-${id}`);
-        if(st && (st.classList.contains('st-approved') || st.classList.contains('st-pending'))) return;
+        // Als item approved, pending, OF LOST is, niet openen
+        if(st && (st.classList.contains('st-approved') || st.classList.contains('st-pending') || st.classList.contains('st-lost'))) return;
         currentItemData = { id, name: item.name }; document.getElementById('modalTitle').innerText = item.name; document.getElementById('modalExample').src = item.exampleUrl; document.getElementById('uploadModal').classList.remove('hidden');
     }
     window.closeModal = () => document.getElementById('uploadModal').classList.add('hidden');
