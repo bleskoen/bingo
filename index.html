@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>IKEA BINGO 9.0 (Bulk Tabel Toevoegen)</title>
+    <title>IKEA BINGO 10.0 (Excel Plakken)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -133,26 +133,12 @@
         </div>
 
         <div class="bg-white p-6 rounded shadow max-w-2xl mx-auto mb-8">
-            <h2 class="text-xl font-bold mb-2 text-[#0051ba]"><i class="fas fa-table"></i> Meerdere Items Toevoegen</h2>
-            <p class="text-sm text-gray-600 mb-4">Vul namen en links in. Lege rijen worden overgeslagen.</p>
+            <h2 class="text-xl font-bold mb-2 text-[#0051ba]"><i class="fas fa-paste"></i> Plakken vanuit Excel</h2>
+            <p class="text-sm text-gray-600 mb-4">Kopieer twee kolommen (<strong>Naam</strong> en <strong>Link</strong>) uit Excel of Google Sheets en plak ze hieronder in het grote veld.</p>
             
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse" id="bulkTable">
-                    <thead>
-                        <tr class="border-b-2 border-gray-200 text-gray-700">
-                            <th class="p-2 w-5/12">Product Naam</th>
-                            <th class="p-2 w-6/12">Afbeelding Link (URL)</th>
-                            <th class="p-2 w-1/12 text-center">Wis</th>
-                        </tr>
-                    </thead>
-                    <tbody id="bulkTableBody">
-                        </tbody>
-                </table>
-            </div>
+            <textarea id="bulkPasteArea" rows="6" class="w-full p-4 border-2 border-gray-300 rounded focus:border-[#0051ba] outline-none font-mono text-sm bg-gray-50" placeholder="Plak hier je gegevens...&#10;Bijvoorbeeld:&#10;Billy Kast [TAB] https://link-naar-foto.nl/billy.jpg&#10;Zweedse Bal [TAB] https://link-naar-foto.nl/bal.jpg"></textarea>
             
-            <button onclick="addBulkRow()" class="mt-3 mb-6 text-[#0051ba] font-bold text-sm hover:underline"><i class="fas fa-plus"></i> Extra rij toevoegen</button>
-            
-            <button onclick="saveBulkItems()" id="btnSaveBulk" class="ikea-btn">Alles Opslaan in Database</button>
+            <button onclick="savePastedItems()" id="btnSavePaste" class="ikea-btn mt-4">Verwerk en Opslaan</button>
         </div>
 
         <div class="bg-gray-50 border border-gray-200 p-6 rounded shadow max-w-2xl mx-auto mb-8">
@@ -237,56 +223,52 @@
     let currentItemData = null;
     let isGameLocked = false;
 
-    // --- BULK TABLE LOGIC (NIEUW) ---
-    window.addBulkRow = () => {
-        const tbody = document.getElementById('bulkTableBody');
-        const tr = document.createElement('tr');
-        tr.className = "border-b border-gray-100";
-        tr.innerHTML = `
-            <td class="p-1"><input type="text" placeholder="Naam" class="inp-name w-full p-2 border rounded text-sm bg-gray-50 focus:bg-white"></td>
-            <td class="p-1"><input type="text" placeholder="https://..." class="inp-url w-full p-2 border rounded text-sm bg-gray-50 focus:bg-white"></td>
-            <td class="p-1 text-center"><button onclick="this.parentElement.parentElement.remove()" class="text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button></td>
-        `;
-        tbody.appendChild(tr);
-    };
+    // --- EXCEL PLAKKEN LOGICA (NIEUW) ---
+    window.savePastedItems = async () => {
+        const rawData = document.getElementById('bulkPasteArea').value.trim();
+        if(!rawData) return alert("Plak eerst je gegevens in het grote vak!");
 
-    // Voeg standaard 3 lege rijen toe bij het laden
-    addBulkRow(); addBulkRow(); addBulkRow();
-
-    window.saveBulkItems = async () => {
-        const rows = document.querySelectorAll('#bulkTableBody tr');
+        // Splits op basis van nieuwe regels (enters)
+        const rows = rawData.split('\n');
         const batch = writeBatch(db);
         let count = 0;
 
         rows.forEach(row => {
-            const name = row.querySelector('.inp-name').value.trim();
-            const url = row.querySelector('.inp-url').value.trim();
-            if (name && url) {
-                // Voeg toe aan batch
-                const docRef = doc(collection(db, "game_items"));
-                // Timestamp met kleine toevoeging om gelijke tijden te voorkomen in sortering
-                batch.set(docRef, { name: name, exampleUrl: url, created: Date.now() + count });
-                count++;
+            // Excel/Sheets gebruikt 'Tabs' om kolommen te scheiden als je plakt
+            // Als fallback proberen we ook een komma of puntkomma
+            let cols = row.split('\t');
+            if(cols.length < 2) cols = row.split(';');
+            if(cols.length < 2) cols = row.split(',');
+
+            if(cols.length >= 2) {
+                const name = cols[0].trim();
+                const url = cols[1].trim();
+                
+                // Extra check: zorg dat de URL op een link lijkt
+                if(name && url.includes('http')) {
+                    const docRef = doc(collection(db, "game_items"));
+                    batch.set(docRef, { name: name, exampleUrl: url, created: Date.now() + count });
+                    count++;
+                }
             }
         });
 
-        if (count === 0) return alert("Vul op z'n minst één rij volledig in met een naam en een link.");
+        if (count === 0) return alert("Kon de data niet goed lezen. Zorg voor 2 kolommen: een kolom met namen en een kolom met http-links.");
 
-        const btn = document.getElementById('btnSaveBulk');
+        const btn = document.getElementById('btnSavePaste');
         btn.innerText = "Bezig met opslaan...";
         try {
             await batch.commit();
             alert(`${count} items succesvol toegevoegd aan de Bingo!`);
-            // Maak tabel weer leeg en voeg 3 rijen toe
-            document.getElementById('bulkTableBody').innerHTML = '';
-            addBulkRow(); addBulkRow(); addBulkRow();
+            document.getElementById('bulkPasteArea').value = '';
         } catch(e) {
-            alert("Er is iets misgegaan bij het opslaan.");
+            alert("Er is iets misgegaan bij het opslaan naar de database.");
             console.error(e);
         }
-        btn.innerText = "Alles Opslaan in Database";
+        btn.innerText = "Verwerk en Opslaan";
     };
 
+    // --- SINGLE UPLOAD LOGICA ---
     window.addSingleUploadItem = async () => {
         const name = document.getElementById('newItemName').value;
         const file = document.getElementById('newItemFile').files[0];
